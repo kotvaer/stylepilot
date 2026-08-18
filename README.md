@@ -1,5 +1,9 @@
 # StylePilot for Lightroom Classic
 
+[![CI](https://github.com/kotvaer/stylepilot/actions/workflows/ci.yml/badge.svg)](https://github.com/kotvaer/stylepilot/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+
 StylePilot is a scene-aware Lightroom Classic editing agent. It decomposes a
 reference photography style, checks whether the selected source photo is
 compatible with that style, proposes safe global Develop adjustments, and
@@ -15,6 +19,44 @@ The product is deliberately Lightroom-first:
 
 See [the product and technical design](docs/product-design.md) for the complete
 scope and architecture.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Photographer[Photographer] --> Selection[Selected source photos]
+
+    subgraph Lightroom[Lightroom Classic]
+        Selection --> Lua[Lua safety plug-in]
+        Review[Native approval panel] --> Lua
+        Lua --> Copy[Virtual copy + recovery snapshot]
+        Copy --> Renderer[Lightroom renderer]
+    end
+
+    subgraph Runtime[Local Python agent runtime]
+        MCP[MCP client] <--> Graph[LangGraph workflow]
+        Graph --> Analysis[Deterministic image analysis]
+        Analysis --> Gate[Scene suitability + safety gates]
+        Gate --> Planner[Bounded Develop planner]
+        Planner --> Verify[Rendered postcondition evaluator]
+        Calibrator[Actuator calibration runner] --> Verify
+    end
+
+    Lua <-->|authenticated local sockets| MCP
+    Renderer --> |EXIF-stripped preview| Analysis
+    Planner --> |exact plan and risks| Review
+    Verify --> |failure: restore snapshot| Lua
+    Verify --> Result[Auditable JSON result]
+
+    PrivatePrompt[Ignored local prompt file] -.-> VLM[Optional VLM provider]
+    VLM -. scene semantics only .-> Analysis
+```
+
+The source photo is never an authorized write target. Python only authorizes
+virtual copies created during the current session, while Lua independently
+checks the Lightroom `isVirtualCopy` flag and numeric parameter ranges before
+every write. Each mutation receives a recovery snapshot and a fresh rendered
+postcondition check.
 
 ## Current milestone
 
