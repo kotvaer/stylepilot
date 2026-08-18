@@ -1,0 +1,20 @@
+{
+  "schema_version": "lightroom-actuator-calibration-manifest-v1",
+  "id": "basic-tone-smoke",
+  "name": "Basic tone actuator smoke test",
+  "baseline_repeats": 3,
+  "parameters": [
+    {
+      "parameter": "Exposure2012",
+      "values": [-0.5, 0.0, 0.5]
+    },
+    {
+      "parameter": "Contrast2012",
+      "values": [-20.0, 0.0, 20.0]
+    },
+    {
+      "parameter": "Vibrance",
+      "values": [-20.0, 0.0, 20.0]
+    }
+  ]
+}

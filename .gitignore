@@ -1,0 +1,20 @@
+.DS_Store
+.env
+.idea/
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.venv/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Local runtime data and generated analysis artifacts.
+.stylepilot/
+tmp/
+
