@@ -20,6 +20,19 @@ The product is deliberately Lightroom-first:
 See [the product and technical design](docs/product-design.md) for the complete
 scope and architecture.
 
+## Real Lightroom end-to-end demo
+
+![StylePilot selecting, reviewing, and safely applying an edit in Lightroom Classic](docs/assets/stylepilot-lightroom-demo.gif)
+
+This public-safe demo uses a synthetic source photo and one real Lightroom
+Classic run. The GIF is assembled from the actual Lightroom source frame,
+native approval panel, and Lightroom-rendered result. StylePilot scored the
+source at **86.8/100**, created a virtual copy and recovery snapshot, then
+re-rendered and verified the edit with no safety-gate failures. Objective style
+distance moved from **0.3327 to 0.2283**, a **31.4% improvement** against the
+baseline Bright Clean target. The scene label was fixed to `landscape` for a
+reproducible demo; no private prompt, API key, or personal photograph is used.
+
 ## Architecture
 
 ```mermaid
