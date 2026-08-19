@@ -22,13 +22,19 @@ from stylepilot.application.calibration import (
     CalibrationRecoveryError,
     LightroomActuatorCalibrator,
 )
+from stylepilot.application.evaluation import (
+    CalibrationReportAggregator,
+    render_calibration_aggregate_markdown,
+)
 from stylepilot.application.ports import PhotoAnalyzer, SceneAnalyzer
 from stylepilot.application.probing import LightroomParameterProbe, ParameterProbeRecoveryError
 from stylepilot.application.workflow import StylePilotWorkflow, WorkflowDependencies
 from stylepilot.configuration import StylePilotSettings, load_scene_prompt, load_settings
+from stylepilot.domain.evaluation import EvaluationDatasetManifest
 from stylepilot.domain.models import (
     DEVELOP_PARAMETER_RANGES,
     ActuatorCalibrationManifest,
+    ActuatorCalibrationReport,
     DevelopSettings,
     ParameterProbeRequest,
     PhotoMetadata,
@@ -48,6 +54,7 @@ from stylepilot.services import (
     SceneAwareImageAnalyzer,
     WeightedSuitabilityEngine,
 )
+from stylepilot.services.synthetic_dataset import SyntheticEvaluationDatasetBuilder
 
 _REFERENCE_IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"})
 _SCENE_CHOICES = tuple(scene.value for scene in SceneType if scene is not SceneType.UNKNOWN)
@@ -80,6 +87,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set an explicit compatible scene; may be repeated",
     )
     _add_semantic_provider_arguments(style_build)
+
+    evaluation = subparsers.add_parser(
+        "evaluation",
+        help="Build local evaluation datasets and aggregate Lightroom evidence",
+    )
+    evaluation_commands = evaluation.add_subparsers(
+        dest="evaluation_command",
+        required=True,
+    )
+    create_dataset = evaluation_commands.add_parser(
+        "create-synthetic-dataset",
+        help="Create deterministic sRGB TIFF targets for Lightroom calibration",
+    )
+    create_dataset.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(".stylepilot/evaluations/datasets/synthetic-actuator-v1"),
+    )
+    aggregate = evaluation_commands.add_parser(
+        "aggregate",
+        help="Aggregate one or more versioned Lightroom actuator reports",
+    )
+    aggregate.add_argument(
+        "reports",
+        nargs="+",
+        type=Path,
+        help="Calibration report JSON files or directories containing reports",
+    )
+    aggregate.add_argument(
+        "--dataset",
+        type=Path,
+        help="Optional evaluation dataset manifest for coverage and integrity evidence",
+    )
+    aggregate.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(".stylepilot/evaluations/aggregates"),
+    )
 
     lightroom = subparsers.add_parser("lightroom", help="Connect to Lightroom Classic over MCP")
     lightroom_commands = lightroom.add_subparsers(dest="lightroom_command", required=True)
@@ -164,6 +209,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     encoding="utf-8",
                 )
                 payload["output_path"] = str(output_path)
+        elif args.command == "evaluation":
+            payload = run_evaluation_command(args)
         else:
             payload = asyncio.run(run_lightroom_command(args))
     except (FileNotFoundError, ValueError) as error:
@@ -175,6 +222,75 @@ def main(argv: Sequence[str] | None = None) -> None:
     except CalibrationRecoveryError as error:
         raise SystemExit(f"Lightroom calibration recovery error: {error}") from error
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def run_evaluation_command(args: argparse.Namespace) -> dict[str, object]:
+    if args.evaluation_command == "create-synthetic-dataset":
+        output_dir = args.output_dir.expanduser().resolve()
+        manifest = SyntheticEvaluationDatasetBuilder().build(output_dir)
+        payload = manifest.model_dump(mode="json")
+        payload["manifest_path"] = str(output_dir / "manifest.json")
+        payload["import_paths"] = [
+            str(output_dir / photo.relative_path) for photo in manifest.photos
+        ]
+        return payload
+
+    report_paths = _expand_calibration_report_paths(args.reports)
+    reports = tuple(
+        ActuatorCalibrationReport.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in report_paths
+    )
+    dataset: EvaluationDatasetManifest | None = None
+    dataset_root: Path | None = None
+    if args.dataset is not None:
+        dataset_path = args.dataset.expanduser().resolve()
+        if not dataset_path.is_file():
+            msg = f"Evaluation dataset manifest does not exist: {dataset_path}"
+            raise FileNotFoundError(msg)
+        dataset = EvaluationDatasetManifest.model_validate_json(
+            dataset_path.read_text(encoding="utf-8")
+        )
+        dataset_root = dataset_path.parent
+
+    aggregate = CalibrationReportAggregator().aggregate(
+        reports,
+        dataset=dataset,
+        dataset_root=dataset_root,
+    )
+    payload = aggregate.model_dump(mode="json")
+    output_dir = args.output_dir.expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"{aggregate.aggregate_id}.json"
+    markdown_path = output_dir / f"{aggregate.aggregate_id}.md"
+    json_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        render_calibration_aggregate_markdown(aggregate),
+        encoding="utf-8",
+    )
+    payload["output_path"] = str(json_path)
+    payload["markdown_output_path"] = str(markdown_path)
+    return payload
+
+
+def _expand_calibration_report_paths(inputs: Sequence[Path]) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for raw_path in inputs:
+        path = raw_path.expanduser().resolve()
+        if path.is_dir():
+            paths.extend(sorted(path.glob("*.json")))
+        elif path.is_file():
+            paths.append(path)
+        else:
+            msg = f"Calibration report path does not exist: {path}"
+            raise FileNotFoundError(msg)
+    unique_paths = tuple(dict.fromkeys(paths))
+    if not unique_paths:
+        msg = "No calibration report JSON files were found"
+        raise ValueError(msg)
+    return unique_paths
 
 
 def run_style_build(
