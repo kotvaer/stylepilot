@@ -59,10 +59,32 @@ class StylePilotSettings(BaseSettings):
         return self.vlm_api_key.get_secret_value() or None
 
 
+class LightroomPanelRuntimeConfig(BaseModel):
+    """Non-secret launcher contract consumed by the Lightroom Lua panel."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["stylepilot-lightroom-panel-runtime-v1"] = (
+        "stylepilot-lightroom-panel-runtime-v1"
+    )
+    platform: Literal["macos", "windows"]
+    runtime_executable: Path
+    env_file: Path
+    default_profile: Path | None = None
+    preview_root: Path
+    result_directory: Path
+
+
 def load_settings(env_file: Path = Path(".env")) -> StylePilotSettings:
     """Load a chosen dotenv file without overriding real process environment variables."""
 
-    return StylePilotSettings(_env_file=env_file)
+    resolved_env_file = env_file.expanduser().resolve()
+    settings = StylePilotSettings(_env_file=resolved_env_file)
+    if settings.vlm_prompt_file.is_absolute():
+        return settings
+    return settings.model_copy(
+        update={"vlm_prompt_file": resolved_env_file.parent / settings.vlm_prompt_file}
+    )
 
 
 def load_scene_prompt(path: Path) -> ScenePromptConfig:

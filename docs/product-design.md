@@ -307,6 +307,10 @@ uv run pytest --cov=stylepilot --cov-branch
 - [x] `apply` 与显式领域写入授权分离，防止库调用者意外落盘；
 - [x] 在 Lightroom 原生浮动面板中展示照片、风格、适配度、参数与风险；
 - [x] 以 request ID 绑定批准/拒绝决定，CLI 申请应用不再等同于写入授权；
+- [x] Lightroom 原生工作区可直接启动本地 Runtime，完成只读分析与受保护的
+  虚拟副本工作流，不依赖 Codex 或终端；
+- [x] 面板按请求启动 Runtime，不常驻占用 socket，并保留外部 CLI / MCP
+  自动化入口；
 - [ ] 评估从 MCP stdio 迁移为 Python 直接 Socket 协议的收益。
 
 ### M3：Style Profile 与模型

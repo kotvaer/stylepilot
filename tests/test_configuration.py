@@ -57,6 +57,23 @@ def test_qianwen_api_mode_loads_from_dotenv(
     assert settings.vlm_api_mode == "chat_completions"
 
 
+def test_relative_private_prompt_path_resolves_from_dotenv_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("STYLEPILOT_VLM_PROMPT_FILE", raising=False)
+    env_file = tmp_path / "config" / ".env"
+    env_file.parent.mkdir()
+    env_file.write_text(
+        "STYLEPILOT_VLM_PROMPT_FILE=.stylepilot/prompts/scene.json\n",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(env_file)
+
+    assert settings.vlm_prompt_file == (env_file.parent / ".stylepilot" / "prompts" / "scene.json")
+
+
 def test_private_scene_prompt_loads_from_ignored_json(tmp_path: Path) -> None:
     prompt_file = tmp_path / "scene.json"
     prompt_file.write_text(

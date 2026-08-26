@@ -40,13 +40,15 @@ flowchart LR
     Photographer[Photographer] --> Selection[Selected source photos]
 
     subgraph Lightroom[Lightroom Classic]
-        Selection --> Lua[Lua safety plug-in]
+        Selection --> Workspace[Native StylePilot workspace]
+        Workspace --> Lua[Lua safety plug-in]
         Review[Native approval panel] --> Lua
         Lua --> Copy[Virtual copy + recovery snapshot]
         Copy --> Renderer[Lightroom renderer]
     end
 
     subgraph Runtime[Local Python agent runtime]
+        Launcher[On-demand panel launcher] --> Graph
         MCP[MCP client] <--> Graph[LangGraph workflow]
         Graph --> Analysis[Deterministic image analysis]
         Analysis --> Gate[Scene suitability + safety gates]
@@ -86,6 +88,9 @@ complete:
 - an MCP client that runs the checked-out StylePilot fork locally;
 - real selected-photo, metadata, and Lightroom-rendered preview adapters;
 - a connection doctor and a read-only Lightroom analysis command;
+- an on-demand Lightroom workspace that runs analysis and guarded application
+  without a terminal or Codex session, while preserving the same CLI/MCP entry
+  points for automation;
 - a guarded `create_virtual_copy` tool and real apply workflow; and
 - bridge-level authorization that rejects writes to any photo not created as a
   virtual copy during the current workflow session;
@@ -163,6 +168,27 @@ Check the real MCP and plugin connection:
 uv run stylepilot lightroom doctor
 ```
 
+Configure the non-secret launcher contract used by Lightroom once per checkout:
+
+```bash
+uv run stylepilot lightroom configure-panel
+```
+
+Then select exactly one photo and open **File → Plug-in Extras → StylePilot —
+Open Workspace** from any Lightroom module. The same command also appears under
+**Library → Plug-in Extras** in the Library module. **Analyze selected photo**
+is read-only. **Apply to virtual copy...** runs the same analysis, opens the
+request-bound approval panel, and only writes to a new virtual copy after
+approval. Lightroom remains responsive while the local runtime and configured
+vision model are working. The panel shows the scene, suitability, proposed
+settings, verification result, and any automatic rollback.
+
+The launcher configuration stores only paths to the runtime, `.env`, optional
+Style Profile, previews, and job results; it never copies the API key. The
+runtime is started only for a panel job, so the external `stylepilot` CLI and
+Codex/MCP workflows remain available. Do not start two Lightroom jobs at the
+same instant because the Lua socket bridge accepts one active client.
+
 Analyze Lightroom's primary selected photo without modifying it:
 
 ```bash
@@ -233,8 +259,8 @@ uv run stylepilot lightroom inspect --apply-to-virtual-copy
 The command opens **StylePilot — Review Operation** inside Lightroom Classic and
 waits for that exact request to be approved or rejected. Approval continues to
 the guarded virtual-copy write; rejection exits without creating a copy or
-changing the catalog. The panel can also be reopened from **File → Plug-in
-Extras → StylePilot — Open Review Panel**.
+changing the catalog. The complete self-contained workflow is available from
+**File → Plug-in Extras → StylePilot — Open Workspace** in every module.
 
 Bring Lightroom Classic to the foreground to review the floating panel. If no
 decision arrives before the client deadline, the runtime calls

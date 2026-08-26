@@ -40,7 +40,47 @@ cp -R vendor/lightroom-mcp/plugin/LightroomMCP.lrplugin \
 Restart Lightroom Classic completely. Open **File → Plug-in Manager → Lightroom
 MCP — StylePilot**, then click **Start Server**.
 
-## 3. Diagnose the connection
+## 3. Configure the Lightroom workspace
+
+Copy `.env.example` to the Git-ignored `.env`, configure the selected model,
+then create Lightroom's non-secret launcher file:
+
+```bash
+uv run stylepilot lightroom configure-panel
+```
+
+The command writes `~/.config/stylepilot/lightroom-runtime.json` with absolute
+paths to the current `stylepilot` executable, `.env`, preview directory, and
+panel-result directory. It does not copy the API key. Relative private-prompt
+paths in `.env` are resolved from the `.env` directory, so Lightroom does not
+depend on the process working directory.
+
+Use `--default-profile /absolute/path/profile.json` to make the native panel
+use a built Style Profile by default. Re-run the command after moving the
+checkout, replacing the virtual environment, or changing that default.
+
+## 4. Use StylePilot directly in Lightroom
+
+1. Select exactly one photo in any Lightroom module.
+2. Choose **File → Plug-in Extras → StylePilot — Open Workspace**. The Library
+   module also exposes the same command under **Library → Plug-in Extras**.
+3. Choose **Analyze selected photo** for a read-only proposal.
+4. Choose **Apply to virtual copy...** to analyze, review the request-bound
+   approval panel, and optionally authorize a virtual-copy edit.
+
+The panel starts the local Python runtime only for the current request and
+displays scene classification, suitability, proposed Develop settings,
+verification, and rollback status. No Codex session or terminal command is
+required. Depending on the configured provider, a model request can take tens
+of seconds to a few minutes; both buttons stay disabled until the result is
+written atomically back to Lightroom.
+
+The CLI and external Codex/MCP entry points use the same workflow and remain
+available. The Lightroom panel does not run a persistent daemon, but the Lua
+socket bridge still supports one client at a time, so do not overlap a panel
+job with a CLI Lightroom job.
+
+## 5. Diagnose the connection
 
 ```bash
 uv run stylepilot lightroom doctor
@@ -65,7 +105,7 @@ request ID. An `Unknown action: cancel_stylepilot_approval` error means the MCP
 server was rebuilt but Lightroom is still running an older copied Lua plugin;
 repeat step 2 and reload or restart Lightroom.
 
-## 4. Run the real read-only analysis
+## 6. Run the real read-only analysis from CLI/Codex
 
 Select one photo in Lightroom and run:
 
@@ -90,7 +130,7 @@ Lightroom catalog or Develop writes.
 
 Generated previews live under `.stylepilot/previews/` and are ignored by Git.
 
-## 5. Apply to a virtual copy
+## 7. Apply to a virtual copy from CLI/Codex
 
 ```bash
 uv run stylepilot lightroom inspect --apply-to-virtual-copy
@@ -118,10 +158,9 @@ marks the still-pending request `client_cancelled` and closes the panel so an
 orphaned request cannot block the next workflow. Recopy and reload the plugin
 after upgrading the fork because this cancellation handler runs in Lua.
 
-Closing the window safely rejects the pending request. The panel can be opened
-manually from **File → Plug-in Extras → StylePilot — Open Review Panel**; with no
-active request it shows an idle state. The bridge refuses to treat an approval
-for a different request ID as valid.
+Closing the approval window safely rejects the pending request. The workspace
+can be opened from **File → Plug-in Extras → StylePilot — Open Workspace**.
+The bridge refuses to treat an approval for a different request ID as valid.
 
 After approval, Lightroom renders a fresh JPEG from the edited virtual copy.
 StylePilot recomputes objective metrics and verifies:

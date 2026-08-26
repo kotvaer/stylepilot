@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+import stylepilot.cli as cli_module
 from stylepilot.adapters.vision import OpenAISceneAnalyzer
 from stylepilot.cli import (
     _resolve_inspect_style_profile,
@@ -167,6 +168,121 @@ def test_evaluation_cli_generates_dataset_and_json_markdown_aggregate(
     assert aggregate_payload["dataset_coverage"]["verified_asset_count"] == 5
     assert Path(aggregate_payload["output_path"]).is_file()
     assert Path(aggregate_payload["markdown_output_path"]).is_file()
+
+
+def test_lightroom_panel_commands_keep_launcher_configuration_non_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runtime = tmp_path / "bin" / "stylepilot"
+    runtime.parent.mkdir()
+    runtime.write_text("#!/bin/sh\n", encoding="utf-8")
+    runtime.chmod(0o755)
+    env_file = tmp_path / ".env"
+    env_file.write_text("STYLEPILOT_VLM_API_KEY=private-key\n", encoding="utf-8")
+    profile = tmp_path / "profile.json"
+    profile.write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "lightroom-runtime.json"
+    monkeypatch.setattr(cli_module, "_lightroom_platform", lambda: "macos")
+
+    main(
+        [
+            "lightroom",
+            "configure-panel",
+            "--runtime-executable",
+            str(runtime),
+            "--env-file",
+            str(env_file),
+            "--default-profile",
+            str(profile),
+            "--preview-root",
+            str(tmp_path / "previews"),
+            "--result-directory",
+            str(tmp_path / "results"),
+            "--output",
+            str(config_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    config_text = config_path.read_text(encoding="utf-8")
+    assert output["status"] == "configured"
+    assert json.loads(config_text)["runtime_executable"] == str(runtime)
+    assert "private-key" not in config_text
+
+
+def test_lightroom_panel_job_writes_atomic_success_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def fake_run(_args: object) -> dict[str, object]:
+        return {"status": "planned", "message": "ready"}
+
+    monkeypatch.setattr(cli_module, "run_lightroom_command", fake_run)
+    result_path = tmp_path / "jobs" / "request-1.json"
+
+    main(
+        [
+            "lightroom",
+            "panel-run",
+            "--request-id",
+            "request-1",
+            "--result-file",
+            str(result_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert output == saved
+    assert saved["status"] == "completed"
+    assert saved["result"]["status"] == "planned"
+    assert not result_path.with_name(f".{result_path.name}.tmp").exists()
+
+
+def test_lightroom_panel_job_converts_runtime_failure_to_result_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def failing_run(_args: object) -> dict[str, object]:
+        raise ValueError("profile is invalid")
+
+    monkeypatch.setattr(cli_module, "run_lightroom_command", failing_run)
+    result_path = tmp_path / "failed.json"
+
+    main(
+        [
+            "lightroom",
+            "panel-run",
+            "--request-id",
+            "request-2",
+            "--result-file",
+            str(result_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "failed"
+    assert output["error_type"] == "ValueError"
+    assert "profile is invalid" in output["error"]
+    assert result_path.is_file()
+
+
+def test_lightroom_panel_job_rejects_untrusted_request_id(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="ASCII letters"):
+        main(
+            [
+                "lightroom",
+                "panel-run",
+                "--request-id",
+                "../escape",
+                "--result-file",
+                str(tmp_path / "result.json"),
+            ]
+        )
 
 
 def test_inspect_cli_exposes_postcondition_safety_thresholds() -> None:
