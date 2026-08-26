@@ -174,13 +174,14 @@ Configure the non-secret launcher contract used by Lightroom once per checkout:
 uv run stylepilot lightroom configure-panel
 ```
 
-Then select exactly one photo and open **Library → Plug-in Extras → StylePilot
-— Open Workspace**. **Analyze selected photo** is read-only. **Apply to virtual
-copy...** runs the same analysis, opens the request-bound approval panel, and
-only writes to a new virtual copy after approval. Lightroom remains responsive
-while the local runtime and configured vision model are working. The panel
-shows the scene, suitability, proposed settings, verification result, and any
-automatic rollback.
+Then select exactly one photo and open **File → Plug-in Extras → StylePilot —
+Open Workspace** from any Lightroom module. The same command also appears under
+**Library → Plug-in Extras** in the Library module. **Analyze selected photo**
+is read-only. **Apply to virtual copy...** runs the same analysis, opens the
+request-bound approval panel, and only writes to a new virtual copy after
+approval. Lightroom remains responsive while the local runtime and configured
+vision model are working. The panel shows the scene, suitability, proposed
+settings, verification result, and any automatic rollback.
 
 The launcher configuration stores only paths to the runtime, `.env`, optional
 Style Profile, previews, and job results; it never copies the API key. The
@@ -259,7 +260,7 @@ The command opens **StylePilot — Review Operation** inside Lightroom Classic a
 waits for that exact request to be approved or rejected. Approval continues to
 the guarded virtual-copy write; rejection exits without creating a copy or
 changing the catalog. The complete self-contained workflow is available from
-**Library → Plug-in Extras → StylePilot — Open Workspace**.
+**File → Plug-in Extras → StylePilot — Open Workspace** in every module.
 
 Bring Lightroom Classic to the foreground to review the floating panel. If no
 decision arrives before the client deadline, the runtime calls

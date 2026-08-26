@@ -61,8 +61,9 @@ checkout, replacing the virtual environment, or changing that default.
 
 ## 4. Use StylePilot directly in Lightroom
 
-1. Open Lightroom's **Library** module and select exactly one photo.
-2. Choose **Library → Plug-in Extras → StylePilot — Open Workspace**.
+1. Select exactly one photo in any Lightroom module.
+2. Choose **File → Plug-in Extras → StylePilot — Open Workspace**. The Library
+   module also exposes the same command under **Library → Plug-in Extras**.
 3. Choose **Analyze selected photo** for a read-only proposal.
 4. Choose **Apply to virtual copy...** to analyze, review the request-bound
    approval panel, and optionally authorize a virtual-copy edit.
@@ -157,7 +158,7 @@ orphaned request cannot block the next workflow. Recopy and reload the plugin
 after upgrading the fork because this cancellation handler runs in Lua.
 
 Closing the approval window safely rejects the pending request. The workspace
-can be opened from **Library → Plug-in Extras → StylePilot — Open Workspace**.
+can be opened from **File → Plug-in Extras → StylePilot — Open Workspace**.
 The bridge refuses to treat an approval for a different request ID as valid.
 
 After approval, Lightroom renders a fresh JPEG from the edited virtual copy.
