@@ -71,8 +71,9 @@ checkout, replacing the virtual environment, or changing that default.
 The panel starts the local Python runtime only for the current request and
 displays scene classification, suitability, proposed Develop settings,
 verification, and rollback status. No Codex session or terminal command is
-required. A model request can take tens of seconds; both buttons stay disabled
-until the result is written atomically back to Lightroom.
+required. Depending on the configured provider, a model request can take tens
+of seconds to a few minutes; both buttons stay disabled until the result is
+written atomically back to Lightroom.
 
 The CLI and external Codex/MCP entry points use the same workflow and remain
 available. The Lightroom panel does not run a persistent daemon, but the Lua
