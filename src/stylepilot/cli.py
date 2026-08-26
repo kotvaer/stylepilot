@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
+import sys
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 from PIL import Image
 
@@ -29,7 +32,12 @@ from stylepilot.application.evaluation import (
 from stylepilot.application.ports import PhotoAnalyzer, SceneAnalyzer
 from stylepilot.application.probing import LightroomParameterProbe, ParameterProbeRecoveryError
 from stylepilot.application.workflow import StylePilotWorkflow, WorkflowDependencies
-from stylepilot.configuration import StylePilotSettings, load_scene_prompt, load_settings
+from stylepilot.configuration import (
+    LightroomPanelRuntimeConfig,
+    StylePilotSettings,
+    load_scene_prompt,
+    load_settings,
+)
 from stylepilot.domain.evaluation import EvaluationDatasetManifest
 from stylepilot.domain.models import (
     DEVELOP_PARAMETER_RANGES,
@@ -133,20 +141,35 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect",
         help="Analyze the primary selected Lightroom photo without modifying it",
     )
-    inspect.add_argument("--profile", type=Path)
-    inspect.add_argument("--style-name")
-    inspect.add_argument("--target-luminance", type=float)
-    inspect.add_argument("--target-chroma", type=float)
-    inspect.add_argument("--minimum-score", type=float)
-    inspect.add_argument("--max-shadow-clip-ratio", type=float)
-    inspect.add_argument("--max-highlight-clip-ratio", type=float)
-    inspect.add_argument("--preview-root", type=Path, default=Path(".stylepilot/previews"))
-    inspect.add_argument("--scene-override", choices=_SCENE_CHOICES)
-    _add_semantic_provider_arguments(inspect)
-    inspect.add_argument(
-        "--apply-to-virtual-copy",
-        action="store_true",
-        help="Create a guarded virtual copy and apply the plan; never writes the source photo",
+    _add_inspect_arguments(inspect)
+    panel_run = lightroom_commands.add_parser(
+        "panel-run",
+        help="Internal entry point launched by the Lightroom StylePilot panel",
+    )
+    _add_inspect_arguments(panel_run)
+    panel_run.add_argument("--request-id", required=True)
+    panel_run.add_argument("--result-file", required=True, type=Path)
+    configure_panel = lightroom_commands.add_parser(
+        "configure-panel",
+        help="Write the non-secret launcher configuration used by the Lightroom panel",
+    )
+    configure_panel.add_argument("--runtime-executable", type=Path)
+    configure_panel.add_argument("--env-file", type=Path, default=Path(".env"))
+    configure_panel.add_argument("--default-profile", type=Path)
+    configure_panel.add_argument(
+        "--preview-root",
+        type=Path,
+        default=Path(".stylepilot/previews"),
+    )
+    configure_panel.add_argument(
+        "--result-directory",
+        type=Path,
+        default=Path("~/.cache/stylepilot/panel-jobs"),
+    )
+    configure_panel.add_argument(
+        "--output",
+        type=Path,
+        default=Path("~/.config/stylepilot/lightroom-runtime.json"),
     )
     rollback = lightroom_commands.add_parser(
         "rollback",
@@ -211,6 +234,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 payload["output_path"] = str(output_path)
         elif args.command == "evaluation":
             payload = run_evaluation_command(args)
+        elif args.command == "lightroom" and args.lightroom_command == "configure-panel":
+            payload = configure_lightroom_panel(args)
+        elif args.command == "lightroom" and args.lightroom_command == "panel-run":
+            payload = run_lightroom_panel_job(args)
         else:
             payload = asyncio.run(run_lightroom_command(args))
     except (FileNotFoundError, ValueError) as error:
@@ -222,6 +249,109 @@ def main(argv: Sequence[str] | None = None) -> None:
     except CalibrationRecoveryError as error:
         raise SystemExit(f"Lightroom calibration recovery error: {error}") from error
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def configure_lightroom_panel(args: argparse.Namespace) -> dict[str, object]:
+    runtime_executable = (
+        args.runtime_executable.expanduser().resolve()
+        if args.runtime_executable is not None
+        else _default_runtime_executable()
+    )
+    if not runtime_executable.is_file() or not os.access(runtime_executable, os.X_OK):
+        msg = f"StylePilot runtime executable is not runnable: {runtime_executable}"
+        raise FileNotFoundError(msg)
+
+    env_file = args.env_file.expanduser().resolve()
+    if not env_file.is_file():
+        msg = f"StylePilot dotenv configuration does not exist: {env_file}"
+        raise FileNotFoundError(msg)
+    default_profile = (
+        args.default_profile.expanduser().resolve() if args.default_profile is not None else None
+    )
+    if default_profile is not None and not default_profile.is_file():
+        msg = f"Default Style Profile does not exist: {default_profile}"
+        raise FileNotFoundError(msg)
+
+    preview_root = args.preview_root.expanduser().resolve()
+    result_directory = args.result_directory.expanduser().resolve()
+    preview_root.mkdir(parents=True, exist_ok=True)
+    result_directory.mkdir(parents=True, exist_ok=True)
+    config = LightroomPanelRuntimeConfig(
+        platform=_lightroom_platform(),
+        runtime_executable=runtime_executable,
+        env_file=env_file,
+        default_profile=default_profile,
+        preview_root=preview_root,
+        result_directory=result_directory,
+    )
+    output_path = args.output.expanduser().resolve()
+    _write_json_atomically(output_path, config.model_dump(mode="json"))
+    output_path.chmod(0o600)
+    return {
+        "status": "configured",
+        "config_path": str(output_path),
+        "runtime_executable": str(runtime_executable),
+        "semantic_configuration": str(env_file),
+        "default_profile": str(default_profile) if default_profile is not None else None,
+    }
+
+
+def run_lightroom_panel_job(args: argparse.Namespace) -> dict[str, object]:
+    if re.fullmatch(r"[A-Za-z0-9-]{1,100}", args.request_id) is None:
+        msg = "Panel request ID must contain 1-100 ASCII letters, numbers, or hyphens"
+        raise ValueError(msg)
+    try:
+        result = asyncio.run(run_lightroom_command(args))
+        envelope: dict[str, object] = {
+            "schema_version": "stylepilot-lightroom-panel-result-v1",
+            "request_id": args.request_id,
+            "status": "completed",
+            "result": result,
+        }
+    except Exception as error:  # boundary converts runtime failures into panel-readable data
+        envelope = {
+            "schema_version": "stylepilot-lightroom-panel-result-v1",
+            "request_id": args.request_id,
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _lightroom_error_message(error),
+        }
+    _write_json_atomically(args.result_file.expanduser().resolve(), envelope)
+    return envelope
+
+
+def _write_json_atomically(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _default_runtime_executable() -> Path:
+    executable_name = "stylepilot.exe" if sys.platform == "win32" else "stylepilot"
+    return Path(sys.executable).with_name(executable_name).resolve()
+
+
+def _lightroom_platform() -> Literal["macos", "windows"]:
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform == "win32":
+        return "windows"
+    msg = f"Lightroom panel configuration is unsupported on platform {sys.platform!r}"
+    raise ValueError(msg)
+
+
+def _lightroom_error_message(error: Exception) -> str:
+    if isinstance(error, LightroomBridgeError):
+        return f"Lightroom integration error: {error}"
+    if isinstance(error, ParameterProbeRecoveryError):
+        return f"Lightroom probe recovery error: {error}"
+    if isinstance(error, CalibrationRecoveryError):
+        return f"Lightroom calibration recovery error: {error}"
+    return str(error)
 
 
 def run_evaluation_command(args: argparse.Namespace) -> dict[str, object]:
@@ -453,6 +583,24 @@ def _resolve_inspect_style_profile(args: argparse.Namespace) -> StyleProfile:
         if value is not None:
             updates[field_name] = value
     return StyleProfile.model_validate({**profile.model_dump(), **updates})
+
+
+def _add_inspect_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--profile", type=Path)
+    parser.add_argument("--style-name")
+    parser.add_argument("--target-luminance", type=float)
+    parser.add_argument("--target-chroma", type=float)
+    parser.add_argument("--minimum-score", type=float)
+    parser.add_argument("--max-shadow-clip-ratio", type=float)
+    parser.add_argument("--max-highlight-clip-ratio", type=float)
+    parser.add_argument("--preview-root", type=Path, default=Path(".stylepilot/previews"))
+    parser.add_argument("--scene-override", choices=_SCENE_CHOICES)
+    _add_semantic_provider_arguments(parser)
+    parser.add_argument(
+        "--apply-to-virtual-copy",
+        action="store_true",
+        help="Create a guarded virtual copy and apply the plan; never writes the source photo",
+    )
 
 
 def _add_semantic_provider_arguments(parser: argparse.ArgumentParser) -> None:
