@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from stylepilot.adapters.lightroom import InMemoryLightroomBridge
 from stylepilot.application.calibration import LightroomActuatorCalibrator
 from stylepilot.domain.models import (
+    DEVELOP_PARAMETER_RANGES,
     ActuatorCalibrationManifest,
     CalibrationPointStatus,
     CalibrationRunStatus,
@@ -192,3 +193,14 @@ def test_calibrator_records_measurement_failure_after_restoration(tmp_path: Path
 def test_manifest_rejects_unsafe_experiment(payload: dict[str, object], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         ActuatorCalibrationManifest.model_validate(payload)
+
+
+def test_checked_in_v1_manifest_covers_every_guarded_parameter() -> None:
+    manifest_path = Path(__file__).parents[1] / "examples" / "actuator-calibration-v1.json"
+
+    full_manifest = ActuatorCalibrationManifest.model_validate_json(
+        manifest_path.read_text(encoding="utf-8")
+    )
+
+    assert full_manifest.sample_points == 33
+    assert {sweep.parameter for sweep in full_manifest.parameters} == set(DEVELOP_PARAMETER_RANGES)

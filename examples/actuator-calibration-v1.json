@@ -1,0 +1,52 @@
+{
+  "schema_version": "lightroom-actuator-calibration-manifest-v1",
+  "id": "guarded-global-parameters-v1",
+  "name": "Guarded global parameter response sweep v1",
+  "baseline_repeats": 3,
+  "parameters": [
+    {
+      "parameter": "Exposure2012",
+      "values": [-1.0, 0.0, 1.0]
+    },
+    {
+      "parameter": "Contrast2012",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Highlights2012",
+      "values": [-40.0, 0.0, 40.0]
+    },
+    {
+      "parameter": "Shadows2012",
+      "values": [-40.0, 0.0, 40.0]
+    },
+    {
+      "parameter": "Whites2012",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Blacks2012",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Texture",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Clarity2012",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Dehaze",
+      "values": [-20.0, 0.0, 20.0]
+    },
+    {
+      "parameter": "Vibrance",
+      "values": [-30.0, 0.0, 30.0]
+    },
+    {
+      "parameter": "Saturation",
+      "values": [-20.0, 0.0, 20.0]
+    }
+  ]
+}

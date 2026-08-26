@@ -1,8 +1,8 @@
 # StylePilot evaluation design
 
-Status: M3.5 baseline specification. This document defines what StylePilot
-measures before the learned planner or a larger Lightroom parameter surface is
-treated as a product capability.
+Status: M3.6 Evaluation Dataset v1 and calibration aggregation implemented.
+This document defines what StylePilot measures before the learned planner or a
+larger Lightroom parameter surface is treated as a product capability.
 
 ## Principles
 
@@ -54,7 +54,7 @@ Initial actuator metrics:
 - apply and restore success rate;
 - rendered delta per parameter and photo;
 - post-restore rendered metric drift;
-- end-to-end latency and failure reason (in a later batch runner).
+- end-to-end latency and failure reason.
 
 #### Batch actuator calibration
 
@@ -80,6 +80,57 @@ They keep actuator conformance, rendered response, baseline repeatability, and
 restoration integrity separate rather than hiding them behind one score. This
 evaluates reliable Lightroom control, not subjective photographer-style match;
 the later style evaluator can consume these calibrated response curves.
+
+#### Evaluation Dataset v1 and cross-run aggregation
+
+The first controlled dataset is generated locally rather than downloaded from
+a photographer. It contains five deterministic TIFF targets with embedded
+sRGB ICC profiles:
+
+- neutral full-range ramp with clipping sentinels;
+- low-key shadow-detail target;
+- high-key highlight-detail target;
+- hue/chroma sweep with fixed color patches;
+- multi-scale high-frequency detail target.
+
+Generate it with:
+
+```bash
+uv run stylepilot evaluation create-synthetic-dataset
+```
+
+The manifest stores portable relative paths, capture-series and condition
+labels, dimensions, generator version, and a SHA-256 identity for every file.
+Import the printed paths into Lightroom, select the five images, then use the
+smoke or full guarded-parameter manifest. The full v1 sweep declares three
+points for each of the current eleven parameters and remains below the
+60-sample-point-per-photo safety bound:
+
+```bash
+uv run stylepilot lightroom calibrate \
+  --manifest examples/actuator-calibration-v1.json
+```
+
+Aggregate one or more completed, rejected, or partially failed reports with:
+
+```bash
+uv run stylepilot evaluation aggregate \
+  .stylepilot/evaluations/calibrations \
+  --dataset .stylepilot/evaluations/datasets/synthetic-actuator-v1/manifest.json
+```
+
+The JSON aggregate retains five-number distributions for every raw evidence
+family. The Markdown view summarizes the same evidence for review. It reports:
+
+- apply and restore readback error and match rates;
+- baseline repeatability, virtual-copy inheritance, and post-restore drift;
+- signed rendered-feature deltas at every requested value;
+- Spearman correlation between actual actuator delta and rendered response;
+- reported latency and planned render counts; and
+- dataset, condition, and file-integrity coverage.
+
+No correlation is emitted for insufficient or constant observations, and no
+composite score can hide failed execution or incomplete dataset coverage.
 
 ### E1: semantic eligibility
 
@@ -145,7 +196,11 @@ metrics and are not folded into style distance.
 
 ## Datasets
 
-Three datasets serve different purposes:
+Four datasets serve different purposes:
+
+- **Synthetic actuator set:** generated, owned sRGB TIFF targets with controlled
+  tonal, chroma, clipping, and detail content. It isolates actuator and render
+  behaviour but cannot validate RAW-specific controls or photographic realism.
 
 - **Actuator calibration set:** a small, user-owned RAW set spanning portrait,
   landscape, high/low exposure, mixed white balance, and high ISO. It is safe
@@ -157,27 +212,32 @@ Three datasets serve different purposes:
   incompatible target profiles. It contains easy cases, boundary cases, and
   explicit abstention cases.
 
-Dataset manifests contain paths and labels, never API keys or copyrighted
-image bytes. Generated previews and reports live below `.stylepilot/` and stay
-Git-ignored by default.
+Dataset manifests contain paths, hashes, and labels, never API keys or embedded
+copyrighted image bytes. Generated previews, synthetic image bytes, and reports
+live below `.stylepilot/` and stay Git-ignored by default. Only generator code
+and safe experiment definitions are checked into the repository.
 
 ## Report policy
 
-Per-image reports preserve raw component metrics. Aggregate reports use median,
-interquartile range, tail regressions, and group breakdowns instead of only a
-mean. Thresholds are versioned and derived from calibration data. A future
+Per-image reports preserve raw component metrics. Implemented aggregate reports
+use median, quartiles, extrema, dataset-condition coverage, and parameter
+response correlation instead of only a mean. Thresholds remain deliberately
+undefined until representative runs support versioned calibration. A future
 composite product score may be displayed only after the actuator and safety
 gates pass, and its component values must remain visible.
 
 ## Implementation order
 
 1. ~~single-point actuator probe for the existing eleven guarded parameters;~~
-2. ~~repeated real-Lightroom calibration runs and rendered-noise measurement;~~
-3. activate basic tone controls only where a target feature exists;
-4. add typed white-balance and HSL settings to Python, TypeScript, and Lua
+2. ~~bounded multi-photo, multi-parameter calibration runner with repeat renders;~~
+3. ~~reproducible synthetic actuator dataset and cross-run aggregate reports;~~
+4. run the full synthetic sweep and a representative user-owned RAW sweep;
+5. derive versioned per-feature noise and response thresholds from those runs;
+6. activate basic tone controls only where a target feature exists;
+7. add typed white-balance and HSL settings to Python, TypeScript, and Lua
    guardrails in lockstep;
-5. build the leave-one-reference-out style-distance benchmark;
-6. add semantic region features and then a constrained closed-loop planner.
+8. build the leave-one-reference-out style-distance benchmark;
+9. add semantic region features and then a constrained closed-loop planner.
 
 The first real batch smoke run completed on 2026-08-18 with one selected photo,
 two baseline repeats, three `Contrast2012` points, and nine Lightroom renders.

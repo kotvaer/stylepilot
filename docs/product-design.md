@@ -1,7 +1,7 @@
 # StylePilot 产品与技术设计
 
-状态：M0 / M1 complete，M2 safety slice complete，M3 Style Profile slice in progress
-更新时间：2026-08-17
+状态：M0 / M1 complete，M2 safety slice complete，M3.6 evaluation slice in progress
+更新时间：2026-08-19
 
 ## 1. 产品定义
 
@@ -346,10 +346,22 @@ Studio 人像画像得到 30.70 分并在规划前拒绝；对 Jannik Obenhoff �
 - [x] 单参数探针领域报告与 11 个现有安全参数 CLI 入口；
 - [x] 原生批准、虚拟副本、Snapshot、写入读回、三次渲染测量与自动恢复；
 - [x] Contrast、Whites、Blacks 仅在存在可测目标时进入规则规划；
-- [ ] 在真实 Lightroom 上测量导出噪声与各参数响应；
-- [ ] 多照片、多参数采样清单和聚合报告；
+- [x] 多照片、多参数采样清单、重复基线渲染和逐点安全恢复；
+- [x] 首次真实 Lightroom Contrast 三点连通性/恢复实验；
+- [ ] 在代表性图片集合上测量真实 Lightroom 导出噪声与各参数响应；
 - [ ] 白平衡与 HSL 的类型化 Python / TypeScript / Lua 安全协议；
 - [ ] 留一参考图风格距离评测。
+
+### M3.6：Evaluation Dataset v1
+
+- [x] 生成五张确定性合成 TIFF，覆盖中性影调、高调、低调、色彩与细节；
+- [x] 嵌入 sRGB ICC，记录相对路径、条件标签、尺寸、生成器版本与 SHA-256；
+- [x] 聚合多次校准报告，分别输出执行、恢复、渲染响应和重复噪声证据；
+- [x] 以实际滑块变化量与有符号渲染指标变化量计算 Spearman 相关性；
+- [x] 输出完整 JSON 与便于审阅的 Markdown，不引入掩盖失败的综合分数；
+- [x] 数据集覆盖率、条件覆盖率及文件完整性校验；
+- [ ] 在 Lightroom 导入完整合成集并完成 11 参数三点 sweep；
+- [ ] 增加用户自有 RAW 分层集，并据真实数据确定版本化阈值。
 
 ### M4：参数代理与个性化
 

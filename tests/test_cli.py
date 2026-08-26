@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,12 @@ from stylepilot.cli import (
     run_demo,
 )
 from stylepilot.configuration import StylePilotSettings
-from stylepilot.domain.models import WorkflowStatus
+from stylepilot.domain.models import (
+    ActuatorCalibrationManifest,
+    ActuatorCalibrationReport,
+    CalibrationRunStatus,
+    WorkflowStatus,
+)
 
 
 @pytest.fixture
@@ -94,6 +100,73 @@ def test_calibrate_cli_accepts_manifest_and_report_directory() -> None:
 
     assert args.manifest == Path("examples/actuator-calibration.json")
     assert args.output_dir == Path(".stylepilot/evaluations/calibrations")
+
+
+def test_evaluation_cli_exposes_dataset_and_aggregate_defaults() -> None:
+    dataset_args = build_parser().parse_args(["evaluation", "create-synthetic-dataset"])
+    aggregate_args = build_parser().parse_args(["evaluation", "aggregate", "one.json", "reports"])
+
+    assert dataset_args.output_dir == Path(".stylepilot/evaluations/datasets/synthetic-actuator-v1")
+    assert aggregate_args.reports == [Path("one.json"), Path("reports")]
+    assert aggregate_args.output_dir == Path(".stylepilot/evaluations/aggregates")
+
+
+def test_evaluation_cli_generates_dataset_and_json_markdown_aggregate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    main(
+        [
+            "evaluation",
+            "create-synthetic-dataset",
+            "--output-dir",
+            str(dataset_dir),
+        ]
+    )
+    dataset_payload = json.loads(capsys.readouterr().out)
+    assert len(dataset_payload["photos"]) == 5
+    assert Path(dataset_payload["manifest_path"]).is_file()
+
+    now = datetime(2026, 8, 19, tzinfo=UTC)
+    report = ActuatorCalibrationReport(
+        run_id="rejected-run",
+        created_at=now,
+        completed_at=now,
+        status=CalibrationRunStatus.REJECTED,
+        manifest=ActuatorCalibrationManifest.model_validate(
+            {
+                "id": "one-point",
+                "name": "One point",
+                "parameters": [{"parameter": "Contrast2012", "values": [0]}],
+            }
+        ),
+        selected_photos=(),
+        planned_sample_count=0,
+    )
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    report_path = reports_dir / "report.json"
+    report_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    output_dir = tmp_path / "aggregates"
+
+    main(
+        [
+            "evaluation",
+            "aggregate",
+            str(reports_dir),
+            "--dataset",
+            dataset_payload["manifest_path"],
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    aggregate_payload = json.loads(capsys.readouterr().out)
+    assert aggregate_payload["source_run_ids"] == ["rejected-run"]
+    assert aggregate_payload["dataset_coverage"]["verified_asset_count"] == 5
+    assert Path(aggregate_payload["output_path"]).is_file()
+    assert Path(aggregate_payload["markdown_output_path"]).is_file()
 
 
 def test_inspect_cli_exposes_postcondition_safety_thresholds() -> None:
